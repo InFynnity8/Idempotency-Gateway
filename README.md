@@ -1,98 +1,238 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# Idempotency Gateway – Pay-Once Protocol
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+This project implements an **Idempotency Gateway** for a payment processing system built with **NestJS**.  
+It guarantees **exactly-once payment execution**, even when clients retry requests due to network timeouts, system failures, or slow responses.
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+The system prevents **double charging**, safely handles **concurrent duplicate requests**, and enforces **data integrity** using idempotency keys.
 
-## Description
+---
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+## 🏗 Architecture Diagram
 
-## Project setup
+The Idempotency Gateway sits in front of the payment processor and acts as a protective layer. Every incoming payment request must include a unique `Idempotency-Key`. The gateway determines whether the request should be processed, replayed, blocked, or rejected.
 
-```bash
-$ npm install
-```
+Core components:
 
-## Compile and run the project
+- **Client** – Merchant or application sending payment requests
+- **Idempotency Gateway (NestJS API)** – Controls request execution
+- **Idempotency Store (Redis)** – Stores request state, hashes, responses, and TTL
+- **Audit Log Module** – Records system events for traceability
+- **Payment Processor** – Simulates payment execution
 
-```bash
-# development
-$ npm run start
+![Sequence Diagram Architecture](./assets/Sequence_Diagram_Architecture.png)
 
-# watch mode
-$ npm run start:dev
+---
 
-# production mode
-$ npm run start:prod
-```
+## ⚙️ Setup Instructions (NestJS)
 
-## Run tests
+### Prerequisites
 
-```bash
-# unit tests
-$ npm run test
+- Node.js **v18 or later**
+- npm or yarn
+- **Redis (required)** – used as the idempotency store
 
-# e2e tests
-$ npm run test:e2e
+---
 
-# test coverage
-$ npm run test:cov
-```
+### Redis Configuration
 
-## Deployment
+This project **requires Redis** to function correctly. Redis is used to:
 
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
+- Store idempotency keys
+- Track request state (`IN_PROGRESS`, `COMPLETED`)
+- Cache responses for replay
+- Automatically expire keys using TTL
 
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
+#### Option 1: Run Redis Locally
+
+If Redis is installed locally:
 
 ```bash
-$ npm install -g @nestjs/mau
-$ mau deploy
+redis-server
 ```
 
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
+Verify Redis is running:
 
-## Resources
+```bash
+redis-cli ping
+```
 
-Check out a few resources that may come in handy when working with NestJS:
+Expected output:
 
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
+```
+PONG
+```
 
-## Support
+Redis will run on the default address:
 
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
+```
+redis://localhost:6379
+```
 
-## Stay in touch
+---
 
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
+#### Option 2: Run Redis with Docker (Recommended)
 
-## License
+If Redis is not installed locally, run it using Docker:
 
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+```bash
+docker run -d \
+  --name redis-idempotency \
+  -p 6379:6379 \
+  redis:7
+```
+
+This exposes Redis on:
+
+```
+redis://localhost:6379
+```
+
+---
+
+### Installation
+
+```bash
+git https://github.com/InFynnity8/Idempotency-Gateway.git
+cd idempotency-gateway
+npm install
+```
+
+---
+
+### Running the Application
+
+```bash
+npm run start:dev
+```
+
+The server will start on:
+
+```
+http://localhost:3000
+```
+
+---
+
+## 📡 API Documentation
+
+### Endpoint: Process Payment
+
+**URL**  
+`POST /process-payment`
+
+**Headers**
+
+| Header | Required | Description |
+|------|---------|-------------|
+| `Idempotency-Key` | Yes | Unique key to guarantee exactly-once execution |
+| `Content-Type` | Yes | Must be `application/json` |
+
+**Request Body**
+
+```json
+{
+  "amount": 100,
+  "currency": "GHS"
+}
+```
+
+---
+
+### Successful First Request
+
+- **Status:** `201 Created`
+
+```json
+{
+  "message": "Charged 100 GHS"
+}
+```
+
+---
+
+### Duplicate Request (Same Key & Payload)
+
+If the same request is retried with the same `Idempotency-Key` and payload:
+
+- Payment is **not processed again**
+- Cached response is returned immediately
+
+**Response Header**
+
+```
+X-Cache-Hit: true
+```
+
+---
+
+### Conflict: Same Key, Different Payload
+
+- **Status:** `409 Conflict`
+
+```json
+{
+  "error": "Idempotency key already used for a different request body."
+}
+```
+
+---
+
+## 🧠 Design Decisions
+
+### Why Idempotency at the API Layer?
+Placing idempotency at the gateway level ensures all downstream systems remain stateless and protected from duplicate execution.
+
+### Why Block In-Flight Requests?
+When identical requests arrive concurrently, the system blocks the second request until the first completes. This avoids double execution while preserving a consistent client experience.
+
+### Why Request Hashing?
+The request body is hashed and stored alongside the idempotency key to detect malicious or accidental reuse of the same key with different payloads.
+
+### Why Redis with TTL?
+Redis provides:
+
+- Fast lookups for concurrent requests
+- Native TTL support for automatic key expiration
+- Reliability suitable for distributed systems
+
+This makes it ideal for implementing idempotency in payment workflows.
+
+---
+
+## ⭐ Developer’s Choice: Idempotency TTL & Audit Logging
+
+### Why This Feature?
+Real-world fintech systems cannot retain idempotency keys indefinitely. Unlimited retention increases storage costs, replay risk, and compliance complexity. Additionally, payment systems require detailed audit trails for dispute resolution and regulatory oversight.
+
+### What Was Implemented
+
+#### 1. Idempotency Key Expiry (TTL)
+- Each idempotency key has a configurable TTL
+- Expired keys are automatically removed by Redis
+- Prevents stale replays and unbounded storage growth
+
+#### 2. Audit Logging
+Every important system event is recorded, including:
+
+- `RECEIVED`
+- `PROCESSING_STARTED`
+- `COMPLETED`
+- `REPLAYED`
+- `WAITING`
+- `CONFLICT`
+
+Audit logs enable transaction traceability, debugging, and compliance reporting.
+
+---
+
+## 📌 Summary
+
+This system guarantees:
+
+- Exactly-once payment execution
+- Safe retries and concurrency handling
+- Strong data integrity guarantees
+- Observability suitable for fintech compliance
+
+The result is a **production-oriented idempotency gateway** built with NestJS and modern backend engineering principles.
+
