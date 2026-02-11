@@ -1,39 +1,50 @@
 import { Injectable, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
-import { createClient, RedisClientType } from 'redis';
+import { RedisIdempotencyStore } from './store/redis-idempotency.store';
+import { MemoryIdempotencyStore } from './store/memory-idempotency.store';
 
 @Injectable()
 export class IdempotencyStore implements OnModuleInit, OnModuleDestroy {
-  private client: RedisClientType;
+  private store: RedisIdempotencyStore | MemoryIdempotencyStore;
+
+  constructor(
+    private readonly redisStore: RedisIdempotencyStore,
+    private readonly memoryStore: MemoryIdempotencyStore,
+  ) {}
 
   async onModuleInit() {
-    this.client = createClient({
-      url: 'redis://localhost:6379',
-    });
+    const useMemory =
+      process.env.NODE_ENV !== 'production' ||
+      process.env.USE_IN_MEMORY_STORE === 'true';
 
-    await this.client.connect();
-    console.log('Redis connected');
-  }
+    this.store = useMemory ? this.memoryStore : this.redisStore;
 
-  async onModuleDestroy() {
-    await this.client.quit();
-  }
+   
+    if ('onModuleInit' in this.store) {
+      await this.store.onModuleInit?.();
+    }
 
-  async get(key: string) {
-    const data = await this.client.get(key);
-    return data ? JSON.parse(data) : null;
-  }
-
-  async set(key: string, data: any, ttlSeconds: number) {
-    await this.client.set(
-      key,
-      JSON.stringify({ ...data, createdAt: Date.now() }),
-      { EX: ttlSeconds },
+    console.log(
+      `[IdempotencyStore] Using ${
+        useMemory ? 'In-Memory Store' : 'Redis Store'
+      }`,
     );
   }
 
+  async onModuleDestroy() {
+    if ('onModuleDestroy' in this.store) {
+      await this.store.onModuleDestroy?.();
+    }
+  }
+
+  get(key: string) {
+    return this.store.get(key);
+  }
+
+  async set(key: string, data: any, ttlSeconds: number) {
+    return this.store.set(key, data, ttlSeconds);
+  }
+
   async update(key: string, data: any) {
-    const existing = await this.get(key);
-    if (!existing) return null;
-    await this.client.set(key, JSON.stringify({ ...existing, ...data }));
+    return this.store.update(key, data);
   }
 }
