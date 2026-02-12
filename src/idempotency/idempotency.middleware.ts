@@ -23,7 +23,7 @@ export class IdempotencyMiddleware implements NestMiddleware {
     const result = await this.IdempotencyService.checkOrCreate(
       key,
       req.body,
-      60,
+      86400,
     );
 
     switch (result.status) {
