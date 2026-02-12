@@ -18,7 +18,6 @@ export class IdempotencyStore implements OnModuleInit, OnModuleDestroy {
 
     this.store = useMemory ? this.memoryStore : this.redisStore;
 
-   
     if ('onModuleInit' in this.store) {
       await this.store.onModuleInit?.();
     }
