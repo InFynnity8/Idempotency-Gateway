@@ -15,7 +15,7 @@ Core components:
 
 - **Client** – Merchant or application sending payment requests
 - **Idempotency Gateway (NestJS API)** – Controls request execution
-- **Idempotency Store (Redis)** – Stores request state, hashes, responses, and TTL
+- **Idempotency Store** – Pluggable store (In-Memory for dev, Redis for prod)
 - **Audit Log Module** – Records system events for traceability
 - **Payment Processor** – Simulates payment execution
 
@@ -29,50 +29,65 @@ Core components:
 
 - Node.js **v18 or later**
 - npm or yarn
-- **Redis (required)** – used as the idempotency store
+
+> ⚠️ **Redis is NOT required for local development**  
+> The system automatically switches between:
+>
+> - **In-Memory Store (`Map`)** → Development
+> - **Redis** → Production
 
 ---
 
-### Redis Configuration
+## 🔧 Environment Configuration
 
-This project **requires Redis** to function correctly. Redis is used to:
+Create a `.env` file in the project root.
 
-- Store idempotency keys
-- Track request state (`IN_PROGRESS`, `COMPLETED`)
-- Cache responses for replay
-- Automatically expire keys using TTL
+### Development (Recommended for Local Use)
 
-#### Option 1: Run Redis Locally
+```env
+NODE_ENV=development
+USE_IN_MEMORY_STORE=true
+```
 
-If Redis is installed locally:
+This configuration:
+- Uses an in-memory `Map`
+- Requires **no Redis installation**
+- Is ideal for Windows / WSL / local testing
+
+---
+
+### Production (Redis-backed)
+
+```env
+NODE_ENV=production
+REDIS_URL=redis://localhost:6379
+```
+
+In production, Redis is used automatically for:
+- Cross-instance idempotency guarantees
+- Persistence across restarts
+- Distributed request coordination
+
+---
+
+## 🧱 Redis Setup (Production Only)
+
+### Option 1: Local Redis
 
 ```bash
 redis-server
 ```
 
-Verify Redis is running:
+Verify:
 
 ```bash
 redis-cli ping
-```
-
-Expected output:
-
-```
-PONG
-```
-
-Redis will run on the default address:
-
-```
-redis://localhost:6379
+# PONG
 ```
 
 ---
 
-#### Option 2: Run Redis with Docker (Recommended)
-
-If Redis is not installed locally, run it using Docker:
+### Option 2: Redis with Docker (Recommended)
 
 ```bash
 docker run -d \
@@ -81,31 +96,25 @@ docker run -d \
   redis:7
 ```
 
-This exposes Redis on:
-
-```
-redis://localhost:6379
-```
-
 ---
 
-### Installation
+## 📦 Installation
 
 ```bash
-git https://github.com/InFynnity8/Idempotency-Gateway.git
+git clone https://github.com/InFynnity8/Idempotency-Gateway.git
 cd idempotency-gateway
 npm install
 ```
 
 ---
 
-### Running the Application
+## ▶️ Running the Application
 
 ```bash
 npm run start:dev
 ```
 
-The server will start on:
+Server starts at:
 
 ```
 http://localhost:3000
@@ -115,17 +124,17 @@ http://localhost:3000
 
 ## 📡 API Documentation
 
-### Endpoint: Process Payment
+### 1️⃣ Process Payment
 
-**URL**  
+**Endpoint**  
 `POST /process-payment`
 
 **Headers**
 
 | Header | Required | Description |
 |------|---------|-------------|
-| `Idempotency-Key` | Yes | Unique key to guarantee exactly-once execution |
-| `Content-Type` | Yes | Must be `application/json` |
+| `Idempotency-Key` | Yes | Guarantees exactly-once execution |
+| `Content-Type` | Yes | `application/json` |
 
 **Request Body**
 
@@ -138,7 +147,7 @@ http://localhost:3000
 
 ---
 
-### Successful First Request
+#### ✅ First Successful Request
 
 - **Status:** `201 Created`
 
@@ -150,12 +159,10 @@ http://localhost:3000
 
 ---
 
-### Duplicate Request (Same Key & Payload)
+#### 🔁 Duplicate Request (Same Key & Payload)
 
-If the same request is retried with the same `Idempotency-Key` and payload:
-
-- Payment is **not processed again**
-- Cached response is returned immediately
+- Payment is **not executed again**
+- Cached response is replayed
 
 **Response Header**
 
@@ -165,7 +172,7 @@ X-Cache-Hit: true
 
 ---
 
-### Conflict: Same Key, Different Payload
+#### ⚠️ Conflict (Same Key, Different Payload)
 
 - **Status:** `409 Conflict`
 
@@ -177,62 +184,115 @@ X-Cache-Hit: true
 
 ---
 
+### 2️⃣ Admin: Audit Logs
+
+**Endpoint**  
+`GET /admin/audit`
+
+Returns a chronological list of system events recorded during payment processing.
+
+---
+
+#### ✅ Sample Response
+
+- **Status:** `200 OK`
+
+```json
+[
+  {
+    "timestamp": "2026-02-11T23:26:10.409Z",
+    "event": "RECEIVED",
+    "details": {
+      "key": "123456",
+      "payload": {
+        "amount": 388800,
+        "currency": "GHS"
+      }
+    }
+  },
+  {
+    "timestamp": "2026-02-11T23:26:10.512Z",
+    "event": "PROCESSING_STARTED",
+    "details": {
+      "key": "123456"
+    }
+  },
+  {
+    "timestamp": "2026-02-11T23:26:11.001Z",
+    "event": "WAITING",
+    "details": {
+      "key": "123456",
+      "reason": "Concurrent request with same idempotency key"
+    }
+  },
+  {
+    "timestamp": "2026-02-11T23:26:12.421Z",
+    "event": "COMPLETED",
+    "details": {
+      "key": "123456",
+      "response": {
+        "message": "Charged 388800 GHS"
+      }
+    }
+  },
+  {
+    "timestamp": "2026-02-11T23:26:13.104Z",
+    "event": "REPLAYED",
+    "details": {
+      "key": "123456",
+      "note": "Cached response returned for duplicate request"
+    }
+  }
+]
+```
+
+---
+
 ## 🧠 Design Decisions
 
 ### Why Idempotency at the API Layer?
 Placing idempotency at the gateway level ensures all downstream systems remain stateless and protected from duplicate execution.
 
 ### Why Block In-Flight Requests?
-When identical requests arrive concurrently, the system blocks the second request until the first completes. This avoids double execution while preserving a consistent client experience.
+Concurrent requests with the same idempotency key are blocked until the first completes, preventing double charges while preserving client correctness.
 
 ### Why Request Hashing?
-The request body is hashed and stored alongside the idempotency key to detect malicious or accidental reuse of the same key with different payloads.
-
-### Why Redis with TTL?
-Redis provides:
-
-- Fast lookups for concurrent requests
-- Native TTL support for automatic key expiration
-- Reliability suitable for distributed systems
-
-This makes it ideal for implementing idempotency in payment workflows.
+The request body is hashed and stored with the idempotency key to detect accidental or malicious reuse with different payloads.
 
 ---
 
-## ⭐ Developer’s Choice: Idempotency TTL & Audit Logging
+## ⭐ Developer’s Choice: Audit Logging (Major Feature)
 
 ### Why This Feature?
-Real-world fintech systems cannot retain idempotency keys indefinitely. Unlimited retention increases storage costs, replay risk, and compliance complexity. Additionally, payment systems require detailed audit trails for dispute resolution and regulatory oversight.
+In real-world payment systems, **observability and traceability** are just as important as correctness. Audit logging enables:
+
+- Transaction traceability
+- Dispute resolution
+- Debugging of concurrency issues
+- Compliance and reporting readiness
 
 ### What Was Implemented
 
-#### 1. Idempotency Key Expiry (TTL)
-- Each idempotency key has a configurable TTL
-- Expired keys are automatically removed by Redis
-- Prevents stale replays and unbounded storage growth
-
-#### 2. Audit Logging
-Every important system event is recorded, including:
+Every significant system event is recorded, including:
 
 - `RECEIVED`
 - `PROCESSING_STARTED`
+- `WAITING`
 - `COMPLETED`
 - `REPLAYED`
-- `WAITING`
 - `CONFLICT`
 
-Audit logs enable transaction traceability, debugging, and compliance reporting.
+Audit logs can be retrieved via the admin endpoint and provide a clear, chronological view of system behavior.
 
 ---
 
 ## 📌 Summary
 
-This system guarantees:
+This project delivers a **production-oriented idempotency gateway** that provides:
 
 - Exactly-once payment execution
 - Safe retries and concurrency handling
-- Strong data integrity guarantees
-- Observability suitable for fintech compliance
+- Pluggable storage (Memory → Redis)
+- Strong observability via audit logs
 
-The result is a **production-oriented idempotency gateway** built with NestJS and modern backend engineering principles.
-
+It demonstrates modern backend engineering practices suitable for **fintech and distributed systems**.
