@@ -15,7 +15,7 @@ export class IdempotencyMiddleware implements NestMiddleware {
     const key = req.headers['idempotency-key'];
     if (!key) {
       this.AuditService.log('NO KEY', {});
-      return res.status(409).json({
+      return res.status(400).json({
           error: 'Idempotency key missing from header.',
         });;
     }
