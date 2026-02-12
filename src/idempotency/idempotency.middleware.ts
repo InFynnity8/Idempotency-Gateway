@@ -20,10 +20,11 @@ export class IdempotencyMiddleware implements NestMiddleware {
         });;
     }
 
+    const ttl = parseInt(process.env.IDEMPOTENCY_TTL_SECONDS || "86400");
     const result = await this.IdempotencyService.checkOrCreate(
       key,
       req.body,
-      86400,
+      ttl,
     );
 
     switch (result.status) {
